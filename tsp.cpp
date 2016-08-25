@@ -7,14 +7,16 @@
 #include <set>
 #include <limits>
 
-Cost_t getCost(Distance_t distance, Load_t load, const Vehicle &vehicle) {
-  return (vehicle.tare + load) * distance;
+Cost_t TSP::getCost(Distance_t distance, Load_t load, const Vehicle &vehicle) {
+//  return (vehicle.tare + load) * distance;
+    return distance;
 }
 
-Cost_t getInferiority(Distance_t distance, Demand_t demand, Load_t load,
-                      const Vehicle &vehicle) {
-  return getCost(distance, load, vehicle) /
-         (vehicle.costOfWeightDistance * demand);
+Cost_t TSP::getInferiority(Distance_t distance, Demand_t demand, Load_t load,
+                           const Vehicle &vehicle) {
+//  return getCost(distance, load, vehicle) /
+//         (vehicle.costOfWeightDistance * demand);
+    return distance;
 }
 
 Station_t bestNeighbour(const DistanceMatrix &distances,
@@ -26,8 +28,8 @@ Station_t bestNeighbour(const DistanceMatrix &distances,
   for (Station_t station = 0; station < distances.size(); ++station) {
     if (station != currentStation && demand[station] > 0 &&
         visitedStations.find(station) == visitedStations.end()) {
-      Cost_t cost = getInferiority(distances[currentStation][station],
-                                   demand[station], load, vehicle);
+      Cost_t cost = TSP::getInferiority(distances[currentStation][station],
+                                        demand[station], load, vehicle);
       if (cost < min_cost) {
         min_cost = cost;
         best_station = station;
@@ -83,23 +85,56 @@ Route bestNeighbourRoute(const DistanceMatrix &distances,
 }
 
 Cost_t TSP::routeCost(Route &route, const DistanceMatrix &distances,
-                      const DemandMatrixColumn &demand,
-                      const Vehicle &vehicle) {
+                      const DemandMatrixColumn &demand, const Vehicle &vehicle,
+                      Load_t startLoad) {
   Cost_t total_cost = 0;
-  Load_t current_load = stationsInDemand(demand).second;
-  route[0].distance_at = 0;
-  route[0].load_at = current_load;
+  Load_t current_load = startLoad;
+
+  route[0].load_before = 0;
+  route[0].add_cost_at = 0;
   route[0].total_cost_at = 0;
 
   for (Station_t station = 0; station < route.size() - 1; ++station) {
     Station_t from = route[station], to = route[station + 1];
-    total_cost += getCost(distances[from][to], current_load, vehicle);
-    current_load -= demand[to];
-    route[station + 1].distance_at =
-        route[station].distance_at + distances[from][to];
-    route[station + 1].load_at = current_load;
+    Cost_t cost = getCost(distances[from][to], current_load, vehicle);
+
+    route[station + 1].load_before = current_load;
+    route[station + 1].add_cost_at = cost;
+
+    total_cost += cost;
     route[station + 1].total_cost_at = total_cost;
+    current_load -= demand[to];
   }
+
+  return total_cost;
+}
+
+Cost_t TSP::routeCost(ListRoute &route, const DistanceMatrix &distances,
+                      const DemandMatrixColumn &demand, const Vehicle &vehicle,
+                      Load_t startLoad) {
+  Cost_t total_cost = 0;
+  Load_t current_load = startLoad;
+
+  route.front().load_before = 0;
+  route.front().add_cost_at = 0;
+  route.front().total_cost_at = 0;
+
+  auto last = route.end();
+  --last;
+  for (auto it = route.begin(); it != last; ++it) {
+    auto it_next = it;
+    ++it_next;
+    Station_t from = *it, to = *it_next;
+    Cost_t cost = getCost(distances[from][to], current_load, vehicle);
+
+    it_next->load_before = current_load;
+    it_next->add_cost_at = cost;
+
+    total_cost += cost;
+    it_next->total_cost_at = total_cost;
+    current_load -= demand[to];
+  }
+
   return total_cost;
 }
 
@@ -129,11 +164,13 @@ std::pair<Route, Cost_t> twoOpt(const Route &route,
   std::size_t nodes_to_swap = route.size() - 2;
   do {
     improvement_made = false;
-    best_cost = TSP::routeCost(best_route, distances, demand, vehicle);
+    best_cost = TSP::routeCost(best_route, distances, demand, vehicle,
+                               stationsInDemand(demand).second);
     for (Station_t i = 1; i < nodes_to_swap - 1; ++i) {
       for (Station_t k = i + 1; k < nodes_to_swap; ++k) {
         Route new_route = twoOptSwap(best_route, i, k);
-        Cost_t new_cost = TSP::routeCost(new_route, distances, demand, vehicle);
+        Cost_t new_cost = TSP::routeCost(new_route, distances, demand, vehicle,
+                                         stationsInDemand(demand).second);
         if (new_cost < best_cost) {
           best_route = std::move(new_route);
           best_cost = new_cost;
